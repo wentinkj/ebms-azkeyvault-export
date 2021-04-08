@@ -71,10 +71,6 @@
 					<groupId>org.linguafranca.pwdb</groupId>
 					<artifactId>KeePassJava2</artifactId>
 				</exclusion>
-				<exclusion>
-					<groupId>com.sun.mail</groupId>
-					<artifactId>javax.mail</artifactId>
-				</exclusion>
 			</exclusions>
 		</dependency>
 
