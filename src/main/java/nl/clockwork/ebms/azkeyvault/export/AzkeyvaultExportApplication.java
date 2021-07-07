@@ -12,7 +12,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
@@ -122,6 +124,9 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 		ksout.load(null,null);
 		
 		for (CertificateProperties certificate : certificateClient.listPropertiesOfCertificates()) {
+			if (!certificate.isEnabled())
+				continue;
+			
             log.info("Export certificate with name {}, version {}", certificate.getName(), certificate.getVersion());
 
             String alias = certificate.getName();
@@ -159,7 +164,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 	 * @throws UnrecoverableKeyException
 	 */
 	private ImmutablePair<Key, Certificate[]> pemToKey(String secret) throws UnrecoverableKeyException {
-		Certificate[] pubcerts = new Certificate[1];
+		List<Certificate> pubcerts = new ArrayList<Certificate>();
 		Key privatekey = null;
 		
 		try {
@@ -172,14 +177,14 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
                 	privatekey = new JcaPEMKeyConverter().getPrivateKey((PrivateKeyInfo) readObject);
                 } else if (readObject instanceof X509CertificateHolder) {
                 	X509CertificateHolder certholder = (X509CertificateHolder) readObject;
-                	pubcerts[0] = (new JcaX509CertificateConverter()).getCertificate(certholder);
+                	pubcerts.add( (new JcaX509CertificateConverter()).getCertificate(certholder) );
                 }
             }
 		} catch (Exception e) {
 			throw new UnrecoverableKeyException("Unable to extract key");
 		}
 		
-		return ImmutablePair.of(privatekey, pubcerts);
+		return ImmutablePair.of(privatekey, pubcerts.toArray(new Certificate[pubcerts.size()]));
 	}
 	
 	
@@ -196,6 +201,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 			
 			ks.load(new ByteArrayInputStream(Base64.getDecoder().decode(secret)), "".toCharArray());
 			String generatedAlias = ks.aliases().nextElement();
+			ks.getCertificateChain(generatedAlias);
 
 			return ImmutablePair.of(ks.getKey(generatedAlias, "".toCharArray()), ks.getCertificateChain(generatedAlias));
 		} catch (Exception e) {
