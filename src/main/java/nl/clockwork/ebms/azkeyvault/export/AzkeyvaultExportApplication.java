@@ -15,8 +15,10 @@ import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.util.Strings;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -57,14 +59,11 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 	 * @param description
 	 * @return
 	 */
-	private String getRequiredOptionString(ApplicationArguments args, String name, String description) {
-		if (args.containsOption(name)) {
-			return args.getOptionValues(name).get(0);
-		} else {
-			log.error("missing argument --{} : {}", name, description);
-		}
-		
-		return null;
+	private Optional<String> getCmdOption(ApplicationArguments args, String name) {
+		if (args.containsOption(name))
+			return Optional.ofNullable(args.getOptionValues(name).get(0));
+
+		return Optional.empty();
 	}
 	
 	/**
@@ -73,39 +72,58 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 	 */
 	@Override
 	public void run(ApplicationArguments args) throws Exception {
-		String url = getRequiredOptionString(args, "url", "azure keyvault url");
-		String tennantid = getRequiredOptionString(args, "tennantid", "azure tennant id");
-		String clientid = getRequiredOptionString(args, "clientid", "azure keyvault url");
-		String clientsecret = getRequiredOptionString(args, "clientsecret", "azure keyvault client id");
-		String keystore = getRequiredOptionString(args, "keystore", "keystore file (including path)");
-		String password = getRequiredOptionString(args, "password", "password to set on keystore and private certificates");
+		String url = getCmdOption (args, "url")
+				.orElseThrow(() -> new IllegalArgumentException("keyvault url missing"));
+		String tennantid = getCmdOption(args, "tennantid")
+				.orElseThrow(() -> new IllegalArgumentException("keyvault tennant id missing"));
+		String clientid = getCmdOption(args, "clientid")
+				.orElseThrow(() -> new IllegalArgumentException("keyvault client id missing"));
+		String clientsecret = getCmdOption(args, "clientsecret")
+				.orElseThrow(() -> new IllegalArgumentException("keyvault client secret missing"));
+		String certname = getCmdOption(args, "name")
+				.orElse(Strings.EMPTY);
+		String keystore = getCmdOption(args, "keystore")
+				.orElseThrow(() -> new IllegalArgumentException("keystore file missing"));
+		String password = getCmdOption(args, "password")
+				.orElseThrow(() -> new IllegalArgumentException("keystore password missing"));
 
-		if (url == null || tennantid == null || clientid == null || clientsecret == null || keystore == null || password == null)
-			log.error("not executing");
-		else
-			runExport(url, tennantid, clientid, clientsecret, keystore, password);
+		runExport(certname, url, tennantid, clientid, clientsecret, keystore, password);
+	}
+	
+	
+	public static Triple<String, Key, Certificate[]> exportCertificate(CertificateProperties cp, CertificateClient cc, SecretClient sc) {
+		
+        log.info("Export certificate with name {}, version {}", cp.getName(), cp.getVersion());
+
+        KeyVaultCertificateWithPolicy kvcert = cc.getCertificate(cp.getName());
+        KeyVaultSecret secret = sc.getSecret(kvcert.getName(), kvcert.getProperties().getVersion());
+        log.debug("cert type is {}", secret.getProperties().getContentType() );
+        try {
+        	if ( "application/x-pkcs12".equalsIgnoreCase(secret.getProperties().getContentType()) )
+        		return secretToKey(cp.getName(), secret.getValue());
+        	if ( "application/x-pem-file".equalsIgnoreCase(secret.getProperties().getContentType()) )
+        		return pemToKey(cp.getName(), secret.getValue());
+        } catch (UnrecoverableKeyException e) {
+        	log.error("certificate export failed", e);
+		}
+		
+		return null;
+	}
+	
+	public static void addToKeyStore(KeyStore ks, String password, Triple<String, Key, Certificate[]> cert) {
+		try {
+			ks.setKeyEntry(cert.getLeft(), cert.getMiddle(), password.toCharArray(), cert.getRight());
+		} catch (KeyStoreException e) {
+			log.error("failed to store certificate with alias {}", cert.getLeft());
+		}
 	}
 	
 	/**
 	 * 
 	 * loop through certificates in keyvault and export them to pcks12 keystore
 	 * 
-	 * @param url
-	 * @param tennantid
-	 * @param clientid
-	 * @param clientsecret
-	 * @param keystore
-	 * @param password
-	 * @throws KeyStoreException
-	 * @throws NoSuchAlgorithmException
-	 * @throws CertificateException
-	 * @throws IOException
 	 */
-	void runExport(String url, String tennantid, String clientid, String clientsecret, String keystore, String password) throws KeyStoreException, NoSuchAlgorithmException, CertificateException, IOException {
-//	    ManagedIdentityCredential managedIdentityCredential = new ManagedIdentityCredentialBuilder()
-//	            .clientId("<USER ASSIGNED MANAGED IDENTITY CLIENT ID>") // only required for user assigned
-//	            .build();
-	
+	void runExport(String name, String url, String tennantid, String clientid, String clientsecret, String keystore, String password) throws KeyStoreException, NoSuchAlgorithmException, CertificateException, IOException {
 		ClientSecretCredential clientSecretCredential = new ClientSecretCredentialBuilder()
 	            .clientId(clientid)
 	            .clientSecret(clientsecret)
@@ -119,40 +137,20 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 			    .vaultUrl(url)
 			    .credential(clientSecretCredential)
 			    .buildClient();
-		
+
 		KeyStore ksout = KeyStore.getInstance("PKCS12");
 		ksout.load(null,null);
 		
-		for (CertificateProperties certificate : certificateClient.listPropertiesOfCertificates()) {
-			if (!certificate.isEnabled())
-				continue;
-			
-            log.info("Export certificate with name {}, version {}", certificate.getName(), certificate.getVersion());
-
-            String alias = certificate.getName();
-	        KeyVaultCertificateWithPolicy kvcert = certificateClient.getCertificate(alias);
-	        
-	        KeyVaultSecret secret = secretClient.getSecret(kvcert.getName(), kvcert.getProperties().getVersion());
-	        log.debug("cert type is {}", secret.getProperties().getContentType() );
-	        try {
-	        	ImmutablePair<Key, Certificate[]> privkey = null;
-	        	if ( "application/x-pkcs12".equalsIgnoreCase(secret.getProperties().getContentType()) )
-	        		privkey = secretToKey(secret.getValue());
-	        	if ( "application/x-pem-file".equalsIgnoreCase(secret.getProperties().getContentType()) )
-	        		privkey = pemToKey(secret.getValue());
-				ksout.setKeyEntry(alias, privkey.getLeft(), password.toCharArray(), privkey.getRight());
-	        } catch (UnrecoverableKeyException e) {
-	        	log.error("certificate export failed", e);
-			} catch (KeyStoreException e) {
-				log.error("certificate import in keystore failed", e);
-			}
-        }
-
+		certificateClient.listPropertiesOfCertificates().stream()
+			.filter(c -> c.isEnabled())
+			.filter(c -> name.isEmpty() || c.getName().contentEquals(name))
+			.map(c -> exportCertificate(c, certificateClient, secretClient) )
+			.forEach(c -> addToKeyStore(ksout, password, c) );
+		
 		log.info("writing to {}", keystore);
-        FileOutputStream fos = new FileOutputStream(new File(keystore));
-		ksout.store(fos, password.toCharArray());
-		fos.flush();
-		fos.close();
+		try (FileOutputStream fos = new FileOutputStream(new File(keystore)) ) {
+			ksout.store(fos, password.toCharArray());
+		};
 	}
 	
 
@@ -163,7 +161,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 	 * @return
 	 * @throws UnrecoverableKeyException
 	 */
-	private ImmutablePair<Key, Certificate[]> pemToKey(String secret) throws UnrecoverableKeyException {
+	private static Triple<String, Key, Certificate[]> pemToKey(String alias, String secret) throws UnrecoverableKeyException {
 		List<Certificate> pubcerts = new ArrayList<Certificate>();
 		Key privatekey = null;
 		
@@ -184,7 +182,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 			throw new UnrecoverableKeyException("Unable to extract key");
 		}
 		
-		return ImmutablePair.of(privatekey, pubcerts.toArray(new Certificate[pubcerts.size()]));
+		return Triple.of(alias, privatekey, pubcerts.toArray(new Certificate[pubcerts.size()]));
 	}
 	
 	
@@ -195,7 +193,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 	 * @return
 	 * @throws UnrecoverableKeyException
 	 */
-	private ImmutablePair<Key, Certificate[]> secretToKey(String secret) throws UnrecoverableKeyException {
+	private static Triple<String, Key, Certificate[]> secretToKey(String alias, String secret) throws UnrecoverableKeyException {
 		try {
 			KeyStore ks = KeyStore.getInstance("PKCS12");
 			
@@ -203,7 +201,7 @@ public class AzkeyvaultExportApplication implements ApplicationRunner {
 			String generatedAlias = ks.aliases().nextElement();
 			ks.getCertificateChain(generatedAlias);
 
-			return ImmutablePair.of(ks.getKey(generatedAlias, "".toCharArray()), ks.getCertificateChain(generatedAlias));
+			return Triple.of(alias, ks.getKey(generatedAlias, "".toCharArray()), ks.getCertificateChain(generatedAlias));
 		} catch (Exception e) {
 			throw new UnrecoverableKeyException("Unable to extract key");
 		}
