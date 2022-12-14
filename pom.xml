@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>nl.clockwork.ebms</groupId>
 	<artifactId>azkeyvault-export</artifactId>
-	<version>0.0.2-SNAPSHOT</version>
+	<version>0.0.2</version>
 	<name>azkeyvault-export</name>
 	<description>ebms azure keyvault export</description>
 	<properties>
