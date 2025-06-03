@@ -34,9 +34,9 @@ Note the output, which contains the `clientId`, `clientSecret`, and `tenantId`. 
 ### Assign keyvault access policy
 You need to assign the service principal access to the KeyVault. This can be solved in several ways, the following example is one of the laziest ways to do this, by assigning the "Key Vault Administrator" role to the service principal for the KeyVault.
 
-This returns the KeyVault ID, which you can use to assign the role to the service principal.
+This returns the KeyVault ID, which you can use to assign the role to the service principal. Use the `az keyvault show` command to get the KeyVault ID, and then use the `az role assignment create` command to assign the role.
 ```bash
-az keyvault show --resource-group "pega-kube" --name "pega-kube-certs" --query id --output tsv
+az keyvault show --resource-group "ebms-group" --name "ebms-certs" --query id --output tsv
 az role assignment create --assignee <CLIENTID> --role "Key Vault Certificates User" --scope <KEYVAULTID, in url format>
 ```
 
