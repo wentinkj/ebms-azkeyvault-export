@@ -5,16 +5,16 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.0.2</version>
+		<version>3.5.0</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>nl.clockwork.ebms</groupId>
 	<artifactId>azkeyvault-export</artifactId>
-	<version>0.0.3</version>
+	<version>0.0.4</version>
 	<name>azkeyvault-export</name>
 	<description>ebms azure keyvault export</description>
 	<properties>
-		<java.version>11</java.version>
+		<java.version>17</java.version>
 		<azure.version>4.0.0</azure.version>
 	</properties>
 	<dependencies>
@@ -53,17 +53,17 @@
 		<dependency>
 			<groupId>com.azure</groupId>
 			<artifactId>azure-security-keyvault-certificates</artifactId>
-			<version>4.4.3</version>
+			<version>4.7.4</version>
 		</dependency>
 		<dependency>
 			<groupId>com.azure</groupId>
 			<artifactId>azure-security-keyvault-secrets</artifactId>
-			<version>4.5.3</version>
+			<version>4.9.4</version>
 		</dependency>
 		<dependency>
 			<groupId>com.azure</groupId>
 			<artifactId>azure-identity</artifactId>
-			<version>1.8.0</version>
+			<version>1.16.1</version>
 			<exclusions>
 				<exclusion>
 					<groupId>org.linguafranca.pwdb</groupId>
